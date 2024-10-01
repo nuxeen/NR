@@ -7,11 +7,10 @@ import argparse
 import os
 import socket
 import colorama
+import nmap  
 
-# Initialize colorama for colored output
 colorama.init()
 
-# Setup logging
 logging.basicConfig(filename='morrigan_eye.log', level=logging.INFO)
 
 def setup_logging():
@@ -50,13 +49,16 @@ def whois_info(domain):
     except Exception as e:
         print(colorama.Fore.RED + f"Error fetching WHOIS information: {e}")
 
-def port_scanner(target):
+# scanner with TCP/UDP and port range selection
+def port_scanner(target, port_range="1-1024", protocol="TCP"):
     setup_logging()
-    print(colorama.Fore.CYAN + f"\nScanning ports on target: {target}")
+    print(colorama.Fore.CYAN + f"\nScanning ports on target: {target} (Protocol: {protocol})")
     
     open_ports = []
-    for port in range(1, 1025):  # Scanning common ports
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    start_port, end_port = map(int, port_range.split('-'))
+
+    for port in range(start_port, end_port+1):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM if protocol == "TCP" else socket.SOCK_DGRAM)
         sock.settimeout(1)
         result = sock.connect_ex((target, port))
         if result == 0:
@@ -71,6 +73,18 @@ def port_scanner(target):
     else:
         print(colorama.Fore.RED + "No open ports found.")
 
+# nmap
+def advanced_network_scan(target):
+    setup_logging()
+    nm = nmap.PortScanner()
+    print(colorama.Fore.CYAN + f"\nPerforming Nmap scan on {target}")
+    nm.scan(hosts=target, arguments='-sP')  # Simple ping scan
+    
+    for host in nm.all_hosts():
+        print(f"Host: {host} ({nm[host].hostname()}) State: {nm[host].state()}")
+        logging.info(f"Nmap Host: {host} ({nm[host].hostname()}) State: {nm[host].state()}")
+
+# ARP scanner
 def network_scanner(interface):
     setup_logging()
     print(colorama.Fore.CYAN + f"\nScanning network on interface: {interface}")
@@ -86,22 +100,47 @@ def network_scanner(interface):
         print(f"IP: {element[1].psrc}, MAC: {element[1].hwsrc}")
         logging.info(f"Device found - IP: {element[1].psrc}, MAC: {element[1].hwsrc}")
 
+# Validate user input for domain and interface
+def validate_input(domain=None, interface=None):
+    if domain:
+        try:
+            socket.gethostbyname(domain)
+        except socket.error:
+            print(colorama.Fore.RED + "Invalid domain.")
+            return False
+    if interface:
+        if not os.system(f"ifconfig {interface} > /dev/null 2>&1") == 0:
+            print(colorama.Fore.RED + "Invalid interface.")
+            return False
+    return True
+
 def main():
-    parser = argparse.ArgumentParser(description='Morrigan Eye - Advanced Network Reconnaissance Tool')
+    parser = argparse.ArgumentParser(description='Morvig - Advanced Network Reconnaissance Tool')
     parser.add_argument('-i', '--interface', help='Network interface to sniff packets', required=True)
     parser.add_argument('-d', '--domain', help='Domain to gather information', required=False)
     parser.add_argument('-t', '--target', help='Target IP for port scanning', required=False)
+    parser.add_argument('-r', '--range', help='Port range for scanning (default: 1-1024)', default="1-1024")
+    parser.add_argument('-p', '--protocol', help='Protocol for port scanning (TCP/UDP)', default="TCP")
     parser.add_argument('-n', '--network', help='Network interface for scanning', required=False)
+    parser.add_argument('-a', '--advanced', help='Use Nmap for advanced network scanning', action='store_true')
 
     args = parser.parse_args()
-    
+
+    if args.domain and not validate_input(domain=args.domain):
+        return
+    if args.interface and not validate_input(interface=args.interface):
+        return
+
     if args.domain:
         dns_info(args.domain)
         whois_info(args.domain)
-    
+
     if args.target:
-        port_scanner(args.target)
-    
+        if args.advanced:
+            advanced_network_scan(args.target)
+        else:
+            port_scanner(args.target, args.range, args.protocol)
+
     if args.network:
         network_scanner(args.network)
 
